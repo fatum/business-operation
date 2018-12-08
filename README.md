@@ -4,16 +4,115 @@
 
 ## The main purpose of building this library creating simple and composable business-logic framework
 
-The framework is a relatively small and simple (~450 LOC) and has a great test coverage
+The framework is a relatively small and simple (~450 LOC) and mimics Tralblazer Operation API
 
 ## Main features
 
 * Simple and concise API using conventions to define handlers
 * We use only keywords for State's keys (it's more convinient). String keys are raising exception
-* You can specify required state's keys for operation
-* Great traceability: you can trace all your nested execution and see whole execution tree with options and state
+* You can specify required state's keys for an operation
+* Great traceability: you can trace all your nested execution and see a whole execution tree with options and state
 * Simple integration with `dry-container` gem
 * Handler is a simple class inherited from `Business::Operation::Base` or any callable. No more `Wrap`, `Nested(Operation, input: Input)` from Trailblazer
+
+## Differences between Tralblazer's Operation
+
+* Your handler can be a simple callable object (block, `Proc` or custom class implementing a `.call` method). It lets you easily define small steps like in this example
+
+```ruby
+  class CreateNewUser < Business::Operation::Base
+    step do |state|
+      state[:model] = ModelFinder.factory(state[:params])
+    end
+  end
+```
+
+* Calling an operation registered as a container entry
+
+```ruby
+  Container = Dry::Container.new
+  Container.register("users.persister", Users::Persist)
+
+  class CreateNewUser < Business::Operation::Base
+    container Container
+
+    step "users.persister"
+  end
+```
+
+* More concise DSL for wrappers (usable to implement transaction wrapper, exception handlers etc)
+
+```ruby
+  class CreateNewUser < Business::Operation::Base
+    wrap Operation::Transaction, isolation: :serializable do
+      step Users::Persist
+      step Users::AssignAccountManager
+    end
+  end
+```
+
+* Ability to trace an execution tree (`debug: true` option)
+
+```ruby
+  class CreateNewUser < Business::Operation::Base
+    debug true
+    wrap Operation::Transaction, isolation: :serializable do
+      step Users::Persist
+      step Users::AssignAccountManager
+    end
+  end
+```
+
+* Simple and consistent API
+
+```ruby
+  class CreateNewUser < Business::Operation::Base
+    step Operation::Model, class: User
+    step Operation::Pundit, class: TenantPolicy, action: :create_user?
+    step Operation::Contract, class: UserForm, key: :resource
+    wrap Operation::Transaction, isolation: :serializable do
+      step Users::Persist
+      step Users::AssignAccountManager
+    end
+  end
+
+  CreateNewUser.(resource: params, tenant: current_tenant)
+```
+
+* Ability to define requirements for an operation (`depends_on :state, %i[model notifier]`)
+
+```ruby
+  class SendNotification < Business::Operation::Base
+    depends_on :state, %i[model notifier]
+
+    def call
+      notifier = state[:notifier].factory(state[:model])
+      notifier.emit(state[:params])
+    end
+  end
+```
+
+* Clean and understandable source code :). No more magic
+
+```ruby
+  module Business
+    module Operation
+      class Pundit < Base
+        depends_on :state, %i[model params]
+        depends_on :options, %i[class action]
+        depends_on :params, :current_user
+
+        def call(options)
+          current_user = state[:params][:current_user]
+          action = options[:action]
+          policy = options[:class]
+
+          policy.new(current_user, state[:model]).public_send(action)
+        end
+      end
+    end
+  end
+```
 
 ## Installation
 
@@ -100,8 +199,8 @@ class CreateUser < Business::Operation::Base
     # To run only one failure handler specify `fail_fast: true` option
     failure :cant_schedule_email, fail_fast: true
 
-    # Or use registered in container
-    # And your step can be always passing
+    # Call earlier registered operation
+    # You may want to make the step being always passing (`fail: false`)
     step "bus.publish_new_user", fail: false
   end
 
