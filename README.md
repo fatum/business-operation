@@ -2,7 +2,7 @@
 
 # Business operation framework
 
-## The main purpose of building this library was creating simple and composable business-logic framework
+## The main purpose of building this library creating simple and composable business-logic framework
 
 The framework is a relatively small and simple (~450 LOC) and has a great test coverage
 
@@ -43,39 +43,78 @@ require "dry-container"
 module Operation
   Model = Business::Operation::Model
   Contract = Business::Operation::Contract
+  Pundit = Business::Operation::Pundit
   Transaction = Business::Operation::ActiveRecordTransaction
 end
 
+
+class PublishNewUser < Business::Operation::Base
+  depends_on :state, :model
+
+  def call
+  end
+
+  def self.factory(state)
+    # choose operation
+  end
+end
+
+class ScheduleEmail < Business::Operation::Base
+  depends_on :state, :model
+
+  def call
+    EmailNotification.create(user: state[:model], type: :signup)
+  end
+end
+
+
 Container = Dry::Container.new
+
+# Register operation as a container entry
+Container.register("bus.publish_new_user", PublishNewUser)
+
+# Or use factory block to choose operation on demand
+Container.register("bus.publish_new_user") { |state| PublishNewUser.factory(state) }
 
 class CreateUser < Business::Operation::Base
   container Container
 
+  # Library has some included operations for daily use-cases
   step Operation::Model, class: User
+  step Operation::Pundit, class: UserPolicy, action: :show?
   step Operation::Contract,
        class: UserForm,
        key: :resource
 
+  # Specify required state entries for next pipeline
   depends_on :state, %i[model contract]
 
+  # You can wrap batch of operations by wrapper
   wrap Operation::Transaction do
     step CreateSubscription
+
+    # You can use previously defined operation
     step ScheduleEmail
-    step "container.global"
+
+    # You can run failures pipeline if previous step failed
+    # To run only one failure handler specify `fail_fast: true` option
+    failure :cant_schedule_email, fail_fast: true
+
+    # Or use registered in container
+    # And your step can be always passing
+    step "bus.publish_new_user", fail: false
   end
 
-  step Notifications::NewUser, fail: false
-
-  failure :log_errors
+  failure :failed_notification
 
   private
 
-  def log_errors
-    Rails.logger.error(helper.format)
+  def cant_schedule_email
+    # handler error here
   end
 
-  def helper
-    @helper ||= ConstractErrorFormatter.new(state[:contract])
+  def failed_notification
+    # handler error here
   end
 end
 ```
