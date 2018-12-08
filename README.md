@@ -1,3 +1,5 @@
+[![CircleCI](https://circleci.com/gh/fatum/business-operation.svg?style=svg)](https://circleci.com/gh/fatum/business-operation)
+
 # Business operation framework
 
 ## The main purpose of building this library was creating simple and composable business-logic framework
