@@ -2,7 +2,7 @@
 
 # Business operation framework
 
-## The main purpose of building this library creating simple and composable business-logic framework
+## The main purpose of building this library is creating simple and composable business-logic framework
 
 The framework is a relatively small and simple (~450 LOC) and mimics Tralblazer Operation API
 
